@@ -18,3 +18,5 @@ Paper: https://arxiv.org/pdf/2206.05077.pdf
 - *./manipulator/*: application of ttgo for IK and reaching tasks with some standard manipulators
 
 Note: All the implementations are fully compatible for use with GPU. For faster computation, it is highly recommended to use GPU
+
+For any questions, contact the author Suhan Shetty <suhan.shetty@idiap.ch>
