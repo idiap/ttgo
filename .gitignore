@@ -1,0 +1,12 @@
+*checkpoint.ipynb
+*.ipynb_checkpoints
+*.pyc
+*.sql3
+**/logs/
+
+
+/manipulator/logs/**
+*.pyc
+*.pickle
+*.png
+*.jpeg
