@@ -1,6 +1,6 @@
 '''
     Copyright (c) 2008 Idiap Research Institute, http://www.idiap.ch/
-    Written by Suhan Shetty <suhan.shetty@idiap.ch>,
+    Written by Suhan Shetty <suhan.shetty@idiap.ch>
 '''
 
 import torch 
