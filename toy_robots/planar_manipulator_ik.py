@@ -127,7 +127,7 @@ if __name__ == '__main__':
     test_task = test_set[:ns,:2]
 
     ##########################################################
-    # Save the model
+    # Save the model.
     torch.save({
     'ttgo':ttgo,
     'w': (args.w_goal,args.w_obst),
