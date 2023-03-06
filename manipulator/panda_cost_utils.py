@@ -19,6 +19,7 @@
 '''
 
 import torch 
+torch.set_default_dtype(torch.float64)
 
 import numpy as np
 from roma import rotmat_to_unitquat as tfm
@@ -280,6 +281,31 @@ class PandaCost:
                 d_obst.view(-1,1),d_orient.view(-1,1)),dim=-1) # for analysis
  
         return c_return
+
+    def cost_goal(self,x):
+        ''' compute the IK cost for target-reaching '''
+        goal_loc = x[:,:3]
+        theta = x[:,3:] # joint angles
+        key_position, end_loc, end_R = self.robot.forward_kin(theta) # get position of key-points and the end-effector
+        # quantify error in end-effector position
+        d_goal = torch.linalg.norm(end_loc-goal_loc, dim=1)
+        return d_goal    
+    
+    def cost_orient(self,theta):
+        ''' compute the IK cost for orientation '''
+
+        key_position, end_loc, end_R = self.robot.forward_kin(theta) # get position of key-points and the end-effector
+        # quantify error in end-effector orientation
+        d_orient = self.dist_orientation(end_R)
+        return d_orient    
+    
+    def cost_obst(self,theta):
+        ''' compute the IK cost for obstacles '''
+        key_position, end_loc, end_R = self.robot.forward_kin(theta) # get position of key-points and the end-effector
+        # quantify collision due to obstacle
+        d_obst = self.dist_obst(key_position[:,None,:,:,:])
+        return d_obst    
+    
 
 
    

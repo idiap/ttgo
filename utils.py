@@ -8,7 +8,9 @@ import numpy as np
 np.set_printoptions(2, suppress=True)
 torch.set_printoptions(2, sci_mode=False)
 
-def test_ttgo(ttgo, cost, test_task, n_samples_tt, alpha=0, norm=1, device='cpu', test_rand=False, robotics=True, cut_total=0.33):
+def test_ttgo(ttgo, cost, test_task, n_samples_tt, 
+              deterministic=True, alpha=0, device='cpu', 
+              test_rand=False, robotics=True, cut_total=0.33):
     '''
         Test TTGO for a given application
         test_task: a batch of test set of task paramters
@@ -34,8 +36,8 @@ def test_ttgo(ttgo, cost, test_task, n_samples_tt, alpha=0, norm=1, device='cpu'
     for i,sample_task in enumerate(test_task):
         t1 = time.time()
         # sample from tt
-        samples, sample_idx = ttgo.sample(n_samples=n_samples_tt, 
-            x_task=sample_task.reshape(1,-1),alpha=alpha,norm=norm)
+        samples = ttgo.sample_tt(n_samples=n_samples_tt, 
+            x_task=sample_task.reshape(1,-1),alpha=alpha,deterministic=deterministic)
         # choose the best solution
         state = ttgo.choose_best_sample(samples)
         t2= time.time()
@@ -48,7 +50,7 @@ def test_ttgo(ttgo, cost, test_task, n_samples_tt, alpha=0, norm=1, device='cpu'
 
         t4 = time.time()
         # sample from uniform distribution
-        samples_rand, _ = ttgo.sample_random(n_samples=n_samples_rand,
+        samples_rand = ttgo.sample_random(n_samples=n_samples_rand,
             x_task=sample_task.reshape(1,-1))
         # choose the best sample
         state = ttgo.choose_best_sample(samples_rand)
@@ -69,7 +71,7 @@ def test_ttgo(ttgo, cost, test_task, n_samples_tt, alpha=0, norm=1, device='cpu'
  
     print("################################################################")
     print("################################################################")
-    print("norm:{}  |  alpha:{}  |  n_samples_tt:{}  |  n_samples_rand:{} | ".format(norm,
+    print("deterministic:{}  |  alpha:{}  |  n_samples_tt:{}  |  n_samples_rand:{} | ".format(deterministic,
         alpha,n_samples_tt,n_samples_rand))
     print('################################################################')
     print("################################################################")

@@ -18,6 +18,8 @@
 '''
 
 import torch
+torch.set_default_dtype(torch.float64)
+
 class PandaKinematics:
     '''
         Manipulator: Franka-Emika Panda
@@ -59,13 +61,13 @@ class PandaKinematics:
  
         # Define key-points on the surface of the robot for collision detection
         if key_points_data is None: # choose the joint locations as the key-points
-            self.key_points = torch.empty(8,1,3).fill_(0.).to(device)
-            self.key_points_weight = torch.empty(8,1,1).fill_(1./8).to(device)
-            self.key_points_margin = torch.empty(8,1,1).fill_(0.1).to(device)
+            self.key_points = torch.empty(8,1,3).fill_(0.).to(device).double()
+            self.key_points_weight = torch.empty(8,1,1).fill_(1./8).to(device).double()
+            self.key_points_margin = torch.empty(8,1,1).fill_(0.1).to(device).double()
         else:
-            self.key_points = key_points_data[0].to(self.device) # 8xMx3 tensor
-            self.key_points_weight = key_points_data[1].to(device) # 8xMx3 tensor
-            self.key_points_margin = key_points_data[2].to(device) # 8xMX3 tensor
+            self.key_points = key_points_data[0].to(self.device).double() # 8xMx3 tensor
+            self.key_points_weight = key_points_data[1].to(device).double() # 8xMx3 tensor
+            self.key_points_margin = key_points_data[2].to(device).double() # 8xMX3 tensor
 
         self.n_kp = self.key_points.shape[1] # number of key points per joint
 

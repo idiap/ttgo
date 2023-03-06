@@ -68,7 +68,7 @@ def plot_contour(x,y,cost, data=None, contour_scale=100, figsize=10, markersize=
     sns.set_style("white")
     cmap = 'binary_r'    
     if log_norm == True:
-        levels = 10.**(0.25*np.arange(-6,14))
+        levels = 10**(0.25*np.arange(-6,14))
         cs = plt.contour(X, Y, Z, contour_scale, cmap=cmap, shade=True,locator=ticker.LogLocator(),
             levels=levels, norm=LogNorm(), alpha=1);
     else:

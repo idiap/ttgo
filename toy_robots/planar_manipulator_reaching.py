@@ -30,6 +30,7 @@ from ttgo import TTGO
 from cost_utils import PlanarManipulatorCost
 from utils import Point2PointMotion
 from utils import test_ttgo
+import tt_utils
 
 import warnings
 
@@ -175,16 +176,17 @@ if __name__ == '__main__':
     domain = domain_task+domain_decision
     #########################################################
     # Fit TT-Model
-    ttgo = TTGO(domain=domain,pdf=pdf, cost=cost, device=device)
-    ttgo.cross_approximate(rmax=args.rmax, nswp=args.nswp, kickrank=args.kr)
-    ttgo.round(1e-4)
+    tt_model = tt_utils.cross_approximate(fcn=pdf,  domain=domain, 
+                            rmax=100, nswp=20, eps=1e-3, verbose=True, 
+                            kickrank=5, device=device)
+    ttgo = TTGO(domain=domain,tt_mod=tt_model.to(device),cost=cost, device=device)
     ########################################################
     # generate test set
     ns = 50
-    test_task = torch.zeros(ns,len(domain_task))
+    test_task = torch.zeros(ns,len(domain_task)).to(device)
     for i in range(len(domain_task)):
         unif = torch.distributions.uniform.Uniform(low=domain_task[i][0],high=domain_task[i][-1])
-        test_task[:,i]= torch.tensor([unif.sample() for i in range(ns)])
+        test_task[:,i]= torch.tensor([unif.sample() for i in range(ns)]).to(device)
 
     ########################################################
 
@@ -207,11 +209,6 @@ if __name__ == '__main__':
     }, file_name)
 
     ########################################################
-    # Specify the modes of the task params
-    sites_task = list(range(len(domain_task)))
-    ttgo.set_sites(sites_task)
-
-    ########################################################
     # Test the model
     
     norm=1
@@ -220,6 +217,6 @@ if __name__ == '__main__':
         for n_samples_tt in [10,50,100,1000]:
             _ test_ttgo(ttgo=ttgo.clone(), cost=cost_to_print, 
                     test_task=test_task, n_samples_tt=n_samples_tt,
-                    alpha=alpha, norm=norm, device=device, test_rand=True)
+                    alpha=alpha, device=device, test_rand=True)
 
 

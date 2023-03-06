@@ -26,6 +26,7 @@ from planar_manipulator import PlanarManipulator
 from cost_utils import PlanarManipulatorCost
 from utils import test_ttgo
 from ttgo import TTGO
+import tt_utils
 import time
 
 np.set_printoptions(precision=4, suppress=True)
@@ -100,16 +101,45 @@ if __name__ == '__main__':
     pose_min = -1*pose_max
     # Discretize
 
-    domain_task=  [torch.linspace(pose_min,pose_max,args.d0_x)]*2 
-    domain_decision = [torch.linspace(min_theta,max_theta,args.d0_theta)]*args.n_joints
+    domain_task=  [torch.linspace(pose_min,pose_max,args.d0_x).to(device)]*2 
+    domain_decision = [torch.linspace(min_theta,max_theta,args.d0_theta).to(device)]*args.n_joints
     domain =  domain_task + domain_decision 
 
     print("Discretization: ",[len(x) for x in domain])
 
     #########################################################
     # Fit TT-Model
-    ttgo = TTGO(domain=domain,pdf=pdf, cost=cost, device=device)
-    ttgo.cross_approximate(rmax=args.rmax, nswp=args.nswp, kickrank=args.kr)
+    def pdf_goal(x):
+        d_goal = costPlanarManipulator.cost_ik(x)[:,1]
+        return torch.exp(-(d_goal/1)**2) 
+    
+    def cost_obst(q): 
+        return costPlanarManipulator.cost_ik(q)[:,2]
+
+    def pdf_obst_q(q):
+        kp_loc = robot.forward_kin(q)[0] # get position of key-points and the end-effector
+        d_obst = costPlanarManipulator.dist_obst(kp_loc)
+        return torch.exp(-(d_obst/1)**2) 
+    
+    print("Find tt_model of pdf_goal:")
+    tt_goal = tt_utils.cross_approximate(fcn=pdf_goal,  domain=domain, 
+                            rmax=200, nswp=10, eps=1e-3, verbose=True, 
+                            kickrank=10, device=device)
+    print("Find tt_model of pdf_obst:")
+    tt_obst_q = tt_utils.cross_approximate(fcn=pdf_obst_q,  domain=domain_decision, 
+                            rmax=200, nswp=10, eps=1e-3, verbose=True, 
+                            kickrank=10, device=device)
+    # make sure the dimensions of tt_obst matches with that of tt_model desired
+    # i.e. pdf_obst(x_task,q) = pdf_obst_q(q)
+    tt_obst = tt_utils.extend_model(tt_model=tt_obst_q,site=0,n_cores=2,d=[d0_x]*2).to(device)
+
+    print("Take product: pdf(x_task,x_decision) = pdf_goal(x_task,x_decision)*pdf_obst(x_decision)")
+    tt_model = tt_goal.to('cpu')*tt_obst.to('cpu')
+
+    tt_model.round_tt(1e-3)   
+
+
+    ttgo = TTGO(tt_model=tt_model.to(device),domain=domain, cost=cost, device=device)
 
     #########################################################
     # Generate test set (feasible target points)
@@ -142,13 +172,10 @@ if __name__ == '__main__':
     print("############################")
     print("Test the model")
     print("############################")
-    sites_task = list(range(len(domain_task)))
-    ttgo.set_sites(sites_task)
 
-    norm = 1
     for alpha in [0.99,0.9,0.8,0.5]:
         for n_samples_tt in [10,50,100,1000]:
             test_ttgo(ttgo=ttgo.clone(), cost=cost_to_print, 
                 test_task=test_task, n_samples_tt=n_samples_tt,
-                alpha=alpha, norm=norm, device=device, test_rand=True)
+                alpha=alpha, device=device, test_rand=True, cut_total=0.2)
   ############################################################ 

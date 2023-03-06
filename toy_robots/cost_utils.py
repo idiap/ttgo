@@ -131,6 +131,56 @@ class PlanarManipulatorCost:
         c_return = torch.cat((c_total.view(-1,1), d_goal.view(-1,1), d_obst.view(-1,1)),dim=1)
         return c_return
 
+    def cost_goal(self,x):
+        ''' compute the IK cost without obstacles '''
+        x_goal = x[:,:2] # desired position of the end-effector
+        theta = x[:,2:] # joint angles
+        kp_loc, joint_loc, ee_loc, theta_ee = self.robot.forward_kin(theta) # get position of key-points and the end-effector
+        d_goal = self.dist_goal(x_goal, ee_loc)
+        return d_goal    
+    
+
+    def cost_obst(self,x,theta_0):
+        ''' 
+        Obstacle avoidance cost for motion planning from a fixed joint configuration (theta_0) 
+        to a final configuration (theta_1)
+        task-param: position of end-effector 
+        '''
+        batch_size = x.shape[0]
+        theta_1 = x[:,:self.n_joints] #final configuration
+        w = x[:,self.n_joints:] # weights of the basis function for motion between theta_0 to theta_1
+        if theta_0.shape[0]!=batch_size:
+            theta_0 = theta_0.view(1,-1).repeat(batch_size,1)
+
+        theta_t = self.p2p.gen_traj_p2p(theta_0,theta_1,w)#batchxtimexjoint_angle
+        T01 = theta_t.shape[1]
+        kp_loc_t_01, joint_loc_t_01, ee_loc_t_01, theta_ee_t_01 = self.robot.forward_kin(theta_t.view(-1,self.n_joints))
+        #kp_loc_t: (batch x time) x joint x kp x coordinates
+        #ee_loc_t: (batch x time) x coordinates
+
+        kp_loc_t_01 = kp_loc_t_01.view(batch_size,T01,*kp_loc_t_01.shape[1:])
+        d_obst = self.dist_obst(kp_loc_t_01)
+        
+        return d_obst
+
+    def cost_control(self,x,theta_0):
+        ''' 
+        Control cost for motion planning from a fixed joint configuration (theta_0) 
+        to a final configuration (theta_1)
+        task-param: position of end-effector 
+        '''
+        batch_size = x.shape[0]
+        theta_1 = x[:,:self.n_joints] #final configuration
+        w = x[:,self.n_joints:] # weights of the basis function for motion between theta_0 to theta_1
+        if theta_0.shape[0]!=batch_size:
+            theta_0 = theta_0.view(1,-1).repeat(batch_size,1)
+
+        
+        theta_t = self.p2p.gen_traj_p2p(theta_0,theta_1,w)#batchxtimexjoint_angle
+
+        d_control = self.dist_traj(theta_t)
+
+        return d_control
 
     def cost_j2p(self,x,theta_0):
         ''' 

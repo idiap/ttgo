@@ -17,6 +17,8 @@
     along with TTGO. If not, see <http://www.gnu.org/licenses/>.
 '''
 
+# Note: Prefer using jupyter-notebook version as it is more up to date
+
 import torch
 import numpy as np
 np.set_printoptions(2, suppress=True)
@@ -25,6 +27,7 @@ torch.set_printoptions(2, sci_mode=False)
 import sys
 sys.path.append('../')
 from ttgo import TTGO
+import tt_utils
 from utils import test_ttgo
 from manipulator_utils import test_robotics_task
 from panda_cost_utils import SDF_Cost, PandaCost
@@ -140,15 +143,23 @@ if __name__ == '__main__':
 
         #######################################################################################
         # Fit the TT-Model
-        # with torch.no_grad():
-        ttgo = TTGO(domain=domain,pdf=pdf, cost=cost, device=device)
-        ttgo.cross_approximate(rmax=args.rmax, nswp=args.nswp, kickrank=args.kr)
-        ttgo.round(eps=1e-4)
+        tt_model = tt_utils.cross_approximate(fcn=pdf,  domain=[x.to(device) for x in domain], 
+                                rmax=200, nswp=20, eps=1e-3, verbose=True, 
+        # Refine the discretization and interpolate the model
+        scale_factor = 10
+        site_list = torch.arange(len(domain))#len(domain_task)+torch.arange(len(domain_decision))
+        domain_new = tt_utils.refine_domain(domain=domain, 
+                                            site_list=site_list,
+                                            scale_factor=scale_factor, device=device)
+        tt_model_new = tt_utils.refine_model(tt_model=tt_model.to(device), 
+                                            site_list=site_list,
+                                            scale_factor=scale_factor, device=device)                        kickrank=5, device=device)
 
-        ###########################################################
-        # Prepare for the task
-        sites_task = list(range(len(domain_task)))
-        ttgo.set_sites(sites_task)
+
+        ttgo = TTGO(tt_model=tt_model_new, domain=domain_new, cost=cost,device=device)
+
+
+
         ############################################################ 
         print("############################")
         print("Test the model")
@@ -159,7 +170,7 @@ if __name__ == '__main__':
         test_task = torch.zeros(ns,len(domain_task)).to(device)
         for i in range(len(domain_task)):
             unif = torch.distributions.uniform.Uniform(low=domain_task[i][0],high=domain_task[i][-1])
-            test_task[:,i]= torch.tensor([unif.sample() for i in range(ns)])
+            test_task[:,i]= torch.tensor([unif.sample() for i in range(ns)]).to(device)
 
 
         torch.save({

@@ -217,10 +217,22 @@ if __name__=='__main__':
         ################################################################################
         # Fit the TT-model
         # with torch.no_grad():
-        ttgo = TTGO(domain=domain, pdf=pdf,cost=cost,device=device,max_batch=args.max_batch)
-        ttgo.cross_approximate(rmax=args.rmax, nswp=args.nswp, kickrank=args.kr)
-        ttgo.round(eps=1e-4)
+        tt_model = tt_utils.cross_approximate(fcn=pdf,  domain=[x.to(device) for x in domain], 
+                                rmax=200, nswp=20, eps=1e-3, verbose=True, 
+        # Refine the discretization and interpolate the model
+        scale_factor = 10
+        site_list = torch.arange(len(domain))#len(domain_task)+torch.arange(len(domain_decision))
+        domain_new = tt_utils.refine_domain(domain=domain, 
+                                            site_list=site_list,
+                                            scale_factor=scale_factor, device=device)
+        tt_model_new = tt_utils.refine_model(tt_model=tt_model.to(device), 
+                                            site_list=site_list,
+                                            scale_factor=scale_factor, device=device)                        kickrank=5, device=device)
 
+
+        ttgo = TTGO(tt_model=tt_model_new, domain=domain_new, cost=cost,device=device)
+
+    
         ################################################################################
 
         print("Preparing test set")
@@ -273,10 +285,7 @@ if __name__=='__main__':
             'test_task': test_task,
         }, file_name)
 
-        #################################################################################
-        # Prepare for the task
-        sites_task = list(range(len(domain_task)))
-        ttgo.set_sites(sites_task)
+
         ############################################################ 
         print("############################")
         print("Test the model")

@@ -129,7 +129,7 @@ def Himmelblaue_4D(alpha=1):
     return pdf, cost
 
 
-def gmm(n=2,nmix=3,L=1,mx_coef=None,mu=None,s=0.1):
+def gmm(n=2,nmix=3,L=1,mx_coef=None,mu=None,s=0.1,device='cpu'):
     """
         Mixture of spherical Gaussians (un-normalized)
         nmix: number of mixture coefficients
@@ -137,14 +137,14 @@ def gmm(n=2,nmix=3,L=1,mx_coef=None,mu=None,s=0.1):
         s: variance
         mu: the centers assumed to be in : [-L,L]^n
     """
-    n_sqrt = torch.sqrt(torch.tensor([n]))
+    n_sqrt = torch.sqrt(torch.tensor([n])).to(device)
     if mx_coef is None: # if centers and mixture coef are not given, generate them randomly
         mx_coef = torch.rand(nmix)
         mx_coef = mx_coef/torch.sum(mx_coef)
-        mu = (torch.rand(nmix,n)-0.5)*2*L
+        mu = ((torch.rand(nmix,n)-0.5)*2*L).to(device)
 
     def pdf(x):
-        result = torch.tensor([0])
+        result = torch.tensor([0]).to(device)
         for k in range(nmix):
             l = torch.linalg.norm(mu[k]-x, dim=1)/n_sqrt
             result = result + mx_coef[k]*torch.exp(-(l/s)**2)
@@ -156,9 +156,9 @@ def gmm(n=2,nmix=3,L=1,mx_coef=None,mu=None,s=0.1):
     return pdf, cost
 
 
-def sine_nD(n=2, alpha=1):
+def sine_nD(n=2, alpha=1, device='cpu'):
     "an nD sinusoidal surface"
-    n_sqrt = torch.sqrt(torch.tensor([n]))
+    n_sqrt = torch.sqrt(torch.tensor([n])).to(device)
     def pdf(x): 
         return 0.49*(1.001+torch.sin(4*torch.pi*torch.linalg.norm(x,dim=1)/n_sqrt))
 

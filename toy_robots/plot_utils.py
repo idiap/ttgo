@@ -50,7 +50,7 @@ def plot_chain(joint_loc, link_lengths, x_obst=[], r_obst=[], x_target=[], rect_
         ax.add_patch(rect)
     color_ = ['g','r']
     for i, x_ in enumerate(x_target):
-        ax.plot(x_[0],x_[1],'o'+color_[i], markersize=10)
+        ax.plot(x_[0],x_[1],'or', markersize=10)
 
     
 
