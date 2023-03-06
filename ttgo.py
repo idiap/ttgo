@@ -136,10 +136,11 @@ class TTGO:
 
 
     def sample_tt(self, x_task=None, n_samples=500, deterministic=False, alpha=0.75):
-        self.sites_task=np.arange(x_task.shape[-1])
+        
         if x_task is None:
             n_discretization_task = None
         else:
+            self.sites_task=np.arange(x_task.shape[-1])
             n_discretization_task = self.n[:x_task.shape[-1]]
         if not deterministic:
             samples = tt_utils.stochastic_top_k(tt_cores=self.tt_model.tt().cores[:], domain=self.domain, 
