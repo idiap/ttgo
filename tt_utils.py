@@ -89,6 +89,68 @@ def get_tt_mean_from_cores(tt_cores):
         sum_ = sum_@core.sum(dim=1)/core.shape[1]
     return sum_.item()
 
+def process_batch_tt_cores(batch_tt_cores, device='cpu'):
+    '''
+    Given a batch of tt-cores ( a list of tensors. size of list is same)
+    batch_tt_cores[i]:  r_i x n_i x s_i
+    return a reshaped batch of tt-cores called batch_rr_cores_new[i]: max(r_i) x n_i x max(s_i)
+    Basically makes cores corresponding to i-th mode has same shape
+    '''
+    bs = len(batch_tt_cores)
+    d = len(batch_tt_cores[0])
+    batch_tt_cores_new = batch_tt_cores[:]
+    batch_r = []*d
+    for i in range(d):
+        r = max([batch_tt_cores[j][i].shape[-1] for j in range(bs)])
+        batch_r[i] = r
+    
+    batch_r = [1] + batch_r 
+    
+    for i in range(d):
+        for j in range(bs):
+            batch_tt_cores_new[j][i] = torch.zeros(r[i],batch_tt_cores[j][i].shape[1],r[i+1]).to(device)
+            batch_tt_cores_new[j][i][:r[i],:,:r[i+1]] = batch_tt_cores[j][i].to(device)
+    return batch_tt_cores_new
+
+
+def get_value_batch_tt_cores(tt_cores, x,  domain, 
+                                    n_discretization=None, max_batch=10**5,
+                                     device="cpu"):
+    '''
+    n_tt: number of tensor trains (each having the same shape)
+    x: n_tt x batch_size x dim
+    tt_cores: a list of tt-cores. each core is of shape: n_tt x r_ x n_ x r
+    Given 
+    
+    '''
+    
+    if n_discretization is None:
+        n_discretization = torch.tensor([len(dom) for dom in domain]).to(device)
+    
+    def fcn(x_batch):
+        bs = x_batch.shape[0]
+        idx_1 = domain2idx(x_batch.view(-1, x_batch.shape[-1]), domain=domain, device=device) # find the closest/floor index of the state (w.r.t to the discretizaton)
+        x_1 = idx2domain(idx_1, domain, device=device) 
+        dx = (x_batch.view(-1, x_batch.shapep[-1])-x_1)#/dh_domain.view(1,-1) # 
+        idx_2 = torch.clip(idx_1+torch.sign(dx),
+                                    n_discretization[:x_batch.shape[-1]]*0,
+                                    n_discretization[:x_batch.shape[-1]]-1).long() # next index
+        x_2 = idx2domain(idx_2, domain, device=device)
+        dx = dx.abs()/(1e-6+(x_2-x_1).abs())
+
+        idx_1 = idx_1.view(*x_batch)
+        idx_2 = idx_2.view(*x_batch)
+        dx = dx.view(*x_batch)
+        core_1 = tt_cores[0].permute(0,2,1,3)[torch.arange(bs).unsqueeze(1),idx_1[:,0]]
+        core_2 = tt_cores[0].permute(0,2,1,3)[torch.arange(bs).unsqueeze(1),idx_2[:,0]]
+        mat_ = core_1 + dx[:,:,0].view(bs,-1,1)*(core_2-core_1)
+        for i in range(1,idx_1.shape[-1]):
+            core_1 = tt_cores[i].permute(0,2,1,3)[torch.arange(bs).unsqueeze(1),idx_1[:,i]]
+            core_2 = tt_cores[i].permute(0,2,1,3)[torch.arange(bs).unsqueeze(1),idx_2[:,i]]
+            mat = core_1 + dx[:,:,i].view(bs,-1,1)*(core_2-core_1)
+            mat_ = torch.einsum('bijk,bkjl->bijl',mat_,mat)
+        return mat_.view(bs,-1)
+    return fcn_batch_limited(fcn=fcn,max_batch=max_batch, device=device)(x)
 
 
 def get_value(tt_model, x,  domain, 
@@ -112,7 +174,7 @@ def get_value_from_cores(tt_cores, x,  domain,
     def fcn(x_batch):
         idx_1 = domain2idx(x_batch, domain=domain, device=device) # find the closest/floor index of the state (w.r.t to the discretizaton)
         x_1 = idx2domain(idx_1, domain, device=device) 
-        dx = (x_batch-x_1)#/dh_domain.view(1,-1) # 
+        dx = (x_batch-x_1)
         idx_2 = torch.clip(idx_1+torch.sign(dx),
                                     n_discretization[:x_batch.shape[-1]]*0,
                                     n_discretization[:x_batch.shape[-1]]-1).long() # next index
@@ -124,6 +186,69 @@ def get_value_from_cores(tt_cores, x,  domain,
             mat_ = torch.einsum('ijk,kjl->ijl',mat_,mat)
         return mat_.view(-1)
     return fcn_batch_limited(fcn=fcn,max_batch=max_batch, device=device)(x)
+
+
+def refine_approximation(tt_cores, domain, site_list=[], scale_factor=1, device='cpu'):
+    # Refine the discretization and interpolate the model
+    domain_new = refine_domain(domain=[x.to(device) for x in domain], 
+                                    site_list=site_list,
+                                    scale_factor=scale_factor, device=device)
+    tt_cores_new = refine_cores(tt_model=[core.to(device) for core in tt_cores], 
+                                        site_list=site_list,
+                                        scale_factor=scale_factor, device=device)
+    return tt_cores_new, domain_new
+
+
+
+def get_grad(x, grad_tt_cores, domain, 
+                                    n_discretization=None, max_batch=10**5,
+                                     device="cpu"):
+    ''' 
+        Evaluate the gradient at the given points with Linear interpolation between the nodes
+        input: x, batch_size x dim
+        output: grad_x,  batch_size x dim
+    '''
+    def fcn(x):
+        idx_1 = domain2idx(x, domain=domain, device=device) # find the index  (w.r.t to the discretizaton)
+        x_1 = idx2domain(idx_1, domain=domain, device=device) 
+        dx = (x - x_1)
+        idx_2 = torch.clip(idx_1+torch.sign(dx),
+                    n_discretization[:x.shape[-1]]*0,n_discretization[:x.shape[-1]]-1).long() # next index
+        x_2 = idx2domain(idx_2, domain=domain, device=device)
+        dx = dx.abs()/(1e-6+(x_2-x_1).abs())
+        mat_ = grad_tt_cores[0][:,:,idx_1[:,0],:]+dx[:,0].view(1,1,-1,1)*(grad_tt_cores[0][:,:,idx_2[:,0],:]-grad_tt_cores[0][:,:,idx_1[:,0],:])
+        for i in range(1, x.shape[-1]):
+            y1 = grad_tt_cores[i][:,:,idx_1[:,i],:]
+            y2 = grad_tt_cores[i][:,:,idx_2[:,i],:]
+            mat_ = torch.einsum('bijk,bkjl->bijl',mat_,y1+dx[:,i].view(1,1,-1,1)*(y2-y1))
+        grad_x = mat_.view(-1,x.shape[-1])
+        grad_x = grad_x/(torch.linalg.norm(grad_x,dim=-1)+1e-9)
+        return grad_x
+    return fcn_batch_limited(fcn=fcn,max_batch=max_batch, device=device)(x)
+
+
+def get_grad_cores(tt_cores, domain):
+    '''
+        Given tt_cores return the gradient of each core at each node
+        tt_cores: i-th core is of shape r_i x n_i x r_(i+1)
+        grad_tt_cores: i-the core is of shape: dim x r_i x (n_i) x r_(i+1) 
+            with grad_tt[i][i] being the gradient w.r.t 
+            that site and  grad_tt[i][j] = tt_core[i] if i!=j
+    '''
+    dim = len(tt_cores)
+    cores = tt_cores[:]
+    grad_tt_cores = [core.view(1,-1,-1,-1).expand(dim,-1,-1,-1) for core in cores]
+    for site in range(dim):
+        core = cores[site]
+        diff_x = (domain[1:]-domain[:-1])
+        diff_core = (core[:,1:,:]-core[:,:-1,:])/diff_x
+        diff_core = torch.concat((diff_core[:,0,:].view(-1,1,-1),
+                                     diff_core, diff_core[:,-1,:].view(-1,1,-1)),dim=1)
+        diff_x = torch.concat((diff_x[0], diff_x, diff_x[-1]), dim=-1)
+        w_1 = diff_x[1:]/(diff_x[1:]+diff_x[:-1])
+        grad_tt_cores[site][site] = w_1*diff_core[:,1:,:]+(1.0-w_1)*diff_core[:,:-1,:]
+    return grad_tt_cores
+
 
 def get_value_from_cores_nonbatch(tt_cores, x,  domain, 
                                     n_discretization=None, device="cpu"):
@@ -255,6 +380,9 @@ def refine_model(tt_model, site_list=[], scale_factor=2, device='cpu'):
     tt_model_new = tnt.Tensor(tt_cores_new).to(device)
     tt_model_new.round(1e-9)
     return tt_model_new.to(device)
+
+
+
 
 def cross_approximate(fcn,  domain,  max_batch=10**5,
                         rmax=200, nswp=20, eps=1e-4, verbose=False, 
@@ -588,101 +716,3 @@ def tt_canonicalize(tt_model,site=0):
     tt_model_o = tt_model.clone()
     tt_model_o.orthogonalize(site)
     return tt_model_o
-
-# def get_grad(self, state, grad_tt_cores):
-#     ''' 
-#         Evaluate the gradient at the given state with Linear interpolation between the nodes
-#         state: batch_size x dim_state
-#         output: batch_size x dim_state
-#     '''
-#     dim = state.shape[-1]
-#     idx_1 = self.domain2idx(state) # find the index of the state (w.r.t to the discretizaton)
-#     state_1 = self.idx2domain(idx_1,self.domain_state_action) 
-#     x = (state - state_1)/self.dh_state_action[:state.shape[-1]].view(1,-1)
-#     idx_2 = torch.clip(idx_1+torch.sign(x),self.d_state_action[:state.shape[-1]]*0,self.d_state_action[:state.shape[-1]]-1).long() # next index
-#     x.abs_()
-#     mat_ = grad_tt_cores[0][:,:,idx_1[:,0],:]+x[:,0].view(1,1,-1,1)*(grad_tt_cores[0][:,:,idx_2[:,0],:]-grad_tt_cores[0][:,:,idx_1[:,0],:])
-#     for i in range(1,state.shape[-1]):
-#         y1 = grad_tt_cores[i][:,:,idx_1[:,i],:]
-#         y2 = grad_tt_cores[i][:,:,idx_2[:,i],:]
-#         mat_ = torch.einsum('bijk,bkjl->bijl',mat_,y1+x[:,i].view(1,1,-1,1)*(y2-y1))
-#     grad_state = mat_.view(-1,dim)
-#     grad_state = grad_state/(torch.linalg.norm(grad_state,dim=-1)+1e-9)
-#     return grad_state
-
-
-# def get_grad_cores(self,tt_model):
-#     '''
-#         Given a tt_model get a tt_model that can return the gradient of each core 
-#         tt_model: i-th core is of shape r_i x n_i x r_(i+1)
-#         grad_tt: i-the core is of shape: dim x r_i x (n_i) x r_(i+1) with grad_tt[i][i] being the gradient w.r.t that site and grad_tt[i][j] = tt_core[i]
-#     '''
-#     dim = len(tt_model.tt().cores)
-#     tt_cores = tt_model.tt().cores[:]
-#     grad_tt_cores = [core.view(1,-1,-1,-1).expand(dim,-1,-1,-1)for core in tt_cores]
-#     for site in range(dim):
-#         core = 1*tt_cores[site]
-#         grad_core = core[:,1:,:]-core[:,:-1,:]
-#         grad_core = torch.concat((grad_core,grad_core[:,-1,:].view(-1,1,-1)),dim=1)
-#         grad_tt_cores[site][site] = 1*grad_core
-#     return grad_tt_cores
-
-
-
-# def deterministic_top_k_OLD(tt_cores, domain=[], 
-#                 x=None, n_samples=100, n_discretization_x=None, 
-#                 dh_x=None, device="cpu", train=True):
-#     '''
-#     Consider the states to be continuous (linear interpolation between tt-nodes)
-#     x: batch_size x dim_x (task variables)
-#     Generate n_samples points from tt-model (treated as a joint PDF distribution ) 
-#     '''
-#     dim = len(tt_cores)
-#     if x is None: # no task variable means no conditioning
-#         batch_size = 1
-#         tt_cores_ext = [core[None,:,:,:] for core in tt_cores]
-#     else:
-#         if n_discretization_x is None:
-#             n_discretization_x = torch.tensor([len(domain[i]) for i in range(x.shape[-1])]).to(device)
-#         batch_size = x.shape[0]
-#         tt_cores_ext = condition_site(tt_cores=tt_cores[:], x=x, dh_x = dh_x,
-#                             domain_x=domain[:x.shape[1]], 
-#                             n_discretization_x=n_discretization_x, 
-#                             device=device)
-
-#     rights = get_rights(tt_cores_ext, device=device)
-
-
-#     samples_idx = torch.zeros([batch_size, n_samples, len(tt_cores_ext)]).long().to(device) #
-#     lefts_p = torch.ones([batch_size, 1, 1]).to(device) # batch_size x n_samples x 1
-#     fiber = torch.einsum('ijkl,il->ijk', (tt_cores_ext[0], rights[1])) # batch_size x r_k x n_k
-#     pmf = torch.einsum('ijk,ikl->ijl', (lefts_p, fiber)).abs() # batch_size x 1 x n_site 
-#     samples_site = torch.topk(pmf.view(batch_size,-1),k=min(n_samples,tt_cores_ext[0].shape[2]),dim=-1)[1] # batch_size x min(self.n_samples,n_site)  
-#     core_sliced = (tt_cores_ext[0].permute([0,2,1,3])[torch.arange(tt_cores_ext[0].shape[0]).unsqueeze(1),samples_site]).permute([0,2,1,3])
-#     idx_site = samples_site.clone()
-#     for site in range(1,len(tt_cores_ext)):
-#         lefts = torch.einsum('ijk,ikjl->ijl', (lefts_p, core_sliced))   # batch_size x min(n_samples,n_site) x 1  # for first iteration:batchsize x min(n_site,n_samples) x 1     
-
-#         fiber = torch.einsum('ijkl,il->ijk', (tt_cores_ext[site], rights[site+1])) # batch_size x r_k x n_k
-#         pmf = torch.einsum('ijk,ikl->ijl', (lefts, fiber)).abs() # batch_size x n_samples x n_site # for first iteration: bs x min(n_samples,n_site) x n_site
-
-#         samples_new, samples_p_id = deterministic_choice(pmf,n_samples,idx_site,device) # batch_size x n_samples, batch_size x n_samples
-
-#         samples_p = samples_site[torch.arange(batch_size).unsqueeze(1),samples_p_id] 
-#         samples_site = samples_new.clone()
-#         samples_idx[:,:,:site]= samples_idx[:,:,:site][torch.arange(batch_size).unsqueeze(1),samples_p_id]
-#         samples_idx[:,:, site-1] = samples_p
-#         core_sliced_p = (tt_cores_ext[site-1].permute([0,2,1,3])[torch.arange(tt_cores_ext[site-1].shape[0]).unsqueeze(1),samples_p]).permute([0,2,1,3])
-#         core_sliced = (tt_cores_ext[site].permute([0,2,1,3])[torch.arange(tt_cores_ext[site].shape[0]).unsqueeze(1),samples_new]).permute([0,2,1,3])
-#         lefts_p = torch.einsum('ijk,ikjl->ijl', (lefts_p, core_sliced_p)) 
-
-#         idx_site = samples_new.clone()
-#     samples_idx[:,:, -1] = samples_site
-#     samples = idx2domain(samples_idx.flatten(0,1),domain[-len(tt_cores_ext):], device).view(batch_size,n_samples,len(tt_cores_ext))
-
-#     if x is not None:
-#         samples_concat = torch.concat((x[:,None,:].expand(-1,n_samples,-1),samples),dim=-1)
-#     else:
-#         samples_concat = samples
-
-#     return samples_concat
