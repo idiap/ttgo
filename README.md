@@ -7,7 +7,7 @@ Website: https://sites.google.com/view/ttgo/home
 Paper: https://arxiv.org/pdf/2206.05077.pdf
 
 ### Pre-requistes
-- Install the tntorch library from: https://github.com/SuhanNShetty/tntorch
+- Install the tntorch library from: https://github.com/rballester/tntorch
 - Pybullet (only for visualization of robotics applications): https://pypi.org/project/pybullet/
 - RoMa (for quarternion calculations): https://naver.github.io/roma/
 
