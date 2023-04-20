@@ -100,13 +100,13 @@ class TTGO:
         '''
         cost_values = self.cost(samples.view(-1,samples.shape[-1])).view(samples.shape[0],samples.shape[1])
         idx = torch.argmax(-cost_values, dim=-1)
-        best_sample = samples[torch.arange(samples.shape[0]).unsqueeze(1),idx,:]
-        return best_sample # batch_size x dim
+        best_sample = samples[torch.arange(samples.shape[0]).unsqueeze(1),idx.view(-1,1),:]
+        return best_sample.view(-1, 1, samples.shape[-1]) # batch_size x 1 x dim
 
 
     def choose_top_k_sample(self,samples,k=1):
         '''Given the samples choose the best k samples '''
-        cost_values = self.cost(samples.view(-1,samples.shape[-1]))
+        cost_values = self.cost(samples.view(-1,samples.shape[-1])).view(samples.shape[0],samples.shape[1])
         values, idx = torch.topk(-cost_values, k, dim=-1)
         return samples[torch.arange(samples.shape[0]).unsqueeze(1),idx,:]
 
