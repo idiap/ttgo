@@ -22,7 +22,7 @@
     This class contains the pytorch implementation of the whole pipeline of TTGO:
      - Input:
         - cost: the cost function,
-        - pdf:  the corresponding density funtion (pdf),
+        - tt_model: corresponding to the pdf (e.g.: tt model of exp(-cost(x)))
         - domain: the discretization of the domain of the pdf,
         - max_batch: specifies the maximum batch size (decrease it if you encounter memory issues)
         - sites_task: a list containing the modes corresponding to the task parameters (optional). You can instead
@@ -35,7 +35,6 @@
         - prioritized sampling can be done by setting alpha parameter in sampling()
      - Choose the best sample(s)
      - Fine-tune the best sample(s) using gradient-based optimization
-        - We use scipy.optimize for this
 
 """
 
@@ -55,6 +54,8 @@ class TTGO:
     def __init__(self, domain, cost, tt_model, sites_task=[],max_batch=10**5, device="cpu"):
         self.device = device
         self.domain = [x.to(self.device) for x in domain] # a list of  1-D torch-tensors containing the discretization points along each axis/mode 
+        self.min_domain = torch.tensor([x[0] for x in domain]).to(device)
+        self.max_domain = torch.tensor([x[-1] for x in domain]).to(device)
         self.n = torch.tensor([len(x) for x in domain]).to(device) # number of discretization points along each axis/mode
         self.dim = len(domain) # dimension of the tensor
         self.tt_model = tt_model.to(device)
@@ -78,6 +79,9 @@ class TTGO:
             
     def clone(self):
         return copy.deepcopy(self)
+    
+    def pdf(self,x):
+        return -self.cost(x)
     
 
     def idx2domain(self,I):
@@ -164,7 +168,21 @@ class TTGO:
     
     def canonicalize(self):
         ''' Canonicalize the tt-cores '''
-        self.tt_model = tt_utils. tt_canonicalize(self.tt_model,site=0).to(self.device)
+        self.tt_model = tt_utils.tt_canonicalize(self.tt_model,site=0).to(self.device)
+        
+
+    def gradient_optimization(self,x, is_site_fixed, GN=True, lr=1e-2, n_step=10):
+        '''
+            Given a batch of initializations x, fine tune the solution
+            is_site_fixed: a list or tensor. is_site_fixed[i]=1 if x[:,i] is fixed/constant (e.g. task variables and discrete vasiables)
+            GN=True => Gauss Newton else gradient-descent/asecent with learning rate lr
+            n_step: number of steps of gd or GM
+        '''
+
+        x_opt = tt_utils.gradient_optimization(x, fcn=self.pdf, is_site_fixed=is_site_fixed, 
+                x_min=self.min_domain, x_max=self.max_domain,
+                lr=lr, n_step=n_step, GN=GN, max_batch=10**4, device=self.device)
+        return x_opt
 
 
 

@@ -122,16 +122,16 @@ if __name__ == '__main__':
         return torch.exp(-(d_obst/1)**2) 
     
     print("Find tt_model of pdf_goal:")
-    tt_goal = tt_utils.cross_approximate(fcn=pdf_goal,  domain=domain, 
+    tt_goal = tt_utils_ol.cross_approximate(fcn=pdf_goal,  domain=domain, 
                             rmax=200, nswp=10, eps=1e-3, verbose=True, 
                             kickrank=10, device=device)
     print("Find tt_model of pdf_obst:")
-    tt_obst_q = tt_utils.cross_approximate(fcn=pdf_obst_q,  domain=domain_decision, 
+    tt_obst_q = tt_utils_ol.cross_approximate(fcn=pdf_obst_q,  domain=domain_decision, 
                             rmax=200, nswp=10, eps=1e-3, verbose=True, 
                             kickrank=10, device=device)
     # make sure the dimensions of tt_obst matches with that of tt_model desired
     # i.e. pdf_obst(x_task,q) = pdf_obst_q(q)
-    tt_obst = tt_utils.extend_model(tt_model=tt_obst_q,site=0,n_cores=2,d=[d0_x]*2).to(device)
+    tt_obst = tt_utils_ol.extend_model(tt_model=tt_obst_q,site=0,n_cores=2,d=[d0_x]*2).to(device)
 
     print("Take product: pdf(x_task,x_decision) = pdf_goal(x_task,x_decision)*pdf_obst(x_decision)")
     tt_model = tt_goal.to('cpu')*tt_obst.to('cpu')
